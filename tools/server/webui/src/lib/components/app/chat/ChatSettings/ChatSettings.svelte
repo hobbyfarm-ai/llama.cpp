@@ -5,263 +5,312 @@
 		AlertTriangle,
 		Code,
 		Monitor,
-		Sun,
-		Moon,
 		ChevronLeft,
 		ChevronRight,
-		Database
+		ListRestart,
+		Sliders
 	} from '@lucide/svelte';
-	import {
-		ChatSettingsFooter,
-		ChatSettingsImportExportTab,
-		ChatSettingsFields
-	} from '$lib/components/app';
-	import { ScrollArea } from '$lib/components/ui/scroll-area';
+	import { ChatSettingsFooter, ChatSettingsFields } from '$lib/components/app';
 	import { config, settingsStore } from '$lib/stores/settings.svelte';
+	import {
+		SETTINGS_SECTION_TITLES,
+		type SettingsSectionTitle,
+		NUMERIC_FIELDS,
+		POSITIVE_INTEGER_FIELDS,
+		SETTINGS_COLOR_MODES_CONFIG,
+		SETTINGS_KEYS
+	} from '$lib/constants';
 	import { setMode } from 'mode-watcher';
+	import { ColorMode } from '$lib/enums/ui';
+	import { SettingsFieldType } from '$lib/enums/settings';
+	import { fade } from 'svelte/transition';
 	import type { Component } from 'svelte';
 
 	interface Props {
+		class?: string;
 		onSave?: () => void;
+		initialSection?: SettingsSectionTitle;
 	}
 
-	let { onSave }: Props = $props();
+	let { class: className, onSave, initialSection }: Props = $props();
 
 	const settingSections: Array<{
 		fields: SettingsFieldConfig[];
 		icon: Component;
-		title: string;
+		title: SettingsSectionTitle;
 	}> = [
 		{
-			title: 'General',
-			icon: Settings,
+			title: SETTINGS_SECTION_TITLES.GENERAL,
+			icon: Sliders,
 			fields: [
 				{
-					key: 'theme',
+					key: SETTINGS_KEYS.THEME,
 					label: 'Theme',
-					type: 'select',
-					options: [
-						{ value: 'system', label: 'System', icon: Monitor },
-						{ value: 'light', label: 'Light', icon: Sun },
-						{ value: 'dark', label: 'Dark', icon: Moon }
-					]
+					type: SettingsFieldType.SELECT,
+					options: SETTINGS_COLOR_MODES_CONFIG
 				},
-				{ key: 'apiKey', label: 'API Key', type: 'input' },
+				{ key: SETTINGS_KEYS.API_KEY, label: 'API Key', type: SettingsFieldType.INPUT },
 				{
-					key: 'systemMessage',
+					key: SETTINGS_KEYS.SYSTEM_MESSAGE,
 					label: 'System Message',
-					type: 'textarea'
+					type: SettingsFieldType.TEXTAREA
 				},
 				{
-					key: 'pasteLongTextToFileLen',
+					key: SETTINGS_KEYS.PASTE_LONG_TEXT_TO_FILE_LEN,
 					label: 'Paste long text to file length',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'copyTextAttachmentsAsPlainText',
+					key: SETTINGS_KEYS.SEND_ON_ENTER,
+					label: 'Send message on Enter',
+					type: SettingsFieldType.CHECKBOX
+				},
+				{
+					key: SETTINGS_KEYS.COPY_TEXT_ATTACHMENTS_AS_PLAIN_TEXT,
 					label: 'Copy text attachments as plain text',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'enableContinueGeneration',
+					key: SETTINGS_KEYS.ENABLE_CONTINUE_GENERATION,
 					label: 'Enable "Continue" button',
-					type: 'checkbox',
+					type: SettingsFieldType.CHECKBOX,
 					isExperimental: true
 				},
 				{
-					key: 'pdfAsImage',
+					key: SETTINGS_KEYS.PDF_AS_IMAGE,
 					label: 'Parse PDF as image',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'askForTitleConfirmation',
+					key: SETTINGS_KEYS.ASK_FOR_TITLE_CONFIRMATION,
 					label: 'Ask for confirmation before changing conversation title',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
+				},
+				{
+					key: SETTINGS_KEYS.TITLE_GENERATION_USE_FIRST_LINE,
+					label: 'Use first non-empty line for conversation title',
+					type: SettingsFieldType.CHECKBOX
 				}
 			]
 		},
 		{
-			title: 'Display',
+			title: SETTINGS_SECTION_TITLES.DISPLAY,
 			icon: Monitor,
 			fields: [
 				{
-					key: 'showMessageStats',
+					key: SETTINGS_KEYS.SHOW_MESSAGE_STATS,
 					label: 'Show message generation statistics',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'showThoughtInProgress',
+					key: SETTINGS_KEYS.SHOW_THOUGHT_IN_PROGRESS,
 					label: 'Show thought in progress',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'keepStatsVisible',
+					key: SETTINGS_KEYS.SHOW_TOOL_CALL_IN_PROGRESS,
+					label: 'Show tool call in progress',
+					type: SettingsFieldType.CHECKBOX
+				},
+				{
+					key: SETTINGS_KEYS.KEEP_STATS_VISIBLE,
 					label: 'Keep stats visible after generation',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'autoMicOnEmpty',
+					key: SETTINGS_KEYS.AUTO_MIC_ON_EMPTY,
 					label: 'Show microphone on empty input',
-					type: 'checkbox',
+					type: SettingsFieldType.CHECKBOX,
 					isExperimental: true
 				},
 				{
-					key: 'renderUserContentAsMarkdown',
+					key: SETTINGS_KEYS.RENDER_USER_CONTENT_AS_MARKDOWN,
 					label: 'Render user content as Markdown',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'disableAutoScroll',
+					key: SETTINGS_KEYS.FULL_HEIGHT_CODE_BLOCKS,
+					label: 'Use full height code blocks',
+					type: SettingsFieldType.CHECKBOX
+				},
+				{
+					key: SETTINGS_KEYS.DISABLE_AUTO_SCROLL,
 					label: 'Disable automatic scroll',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'alwaysShowSidebarOnDesktop',
+					key: SETTINGS_KEYS.ALWAYS_SHOW_SIDEBAR_ON_DESKTOP,
 					label: 'Always show sidebar on desktop',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'autoShowSidebarOnNewChat',
-					label: 'Auto-show sidebar on new chat',
-					type: 'checkbox'
+					key: SETTINGS_KEYS.SHOW_RAW_MODEL_NAMES,
+					label: 'Show raw model names',
+					type: SettingsFieldType.CHECKBOX
+				},
+				{
+					key: SETTINGS_KEYS.ALWAYS_SHOW_AGENTIC_TURNS,
+					label: 'Always show agentic turns in conversation',
+					type: SettingsFieldType.CHECKBOX
 				}
 			]
 		},
 		{
-			title: 'Sampling',
+			title: SETTINGS_SECTION_TITLES.SAMPLING,
 			icon: Funnel,
 			fields: [
 				{
-					key: 'temperature',
+					key: SETTINGS_KEYS.TEMPERATURE,
 					label: 'Temperature',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'dynatemp_range',
+					key: SETTINGS_KEYS.DYNATEMP_RANGE,
 					label: 'Dynamic temperature range',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'dynatemp_exponent',
+					key: SETTINGS_KEYS.DYNATEMP_EXPONENT,
 					label: 'Dynamic temperature exponent',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'top_k',
+					key: SETTINGS_KEYS.TOP_K,
 					label: 'Top K',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'top_p',
+					key: SETTINGS_KEYS.TOP_P,
 					label: 'Top P',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'min_p',
+					key: SETTINGS_KEYS.MIN_P,
 					label: 'Min P',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'xtc_probability',
+					key: SETTINGS_KEYS.XTC_PROBABILITY,
 					label: 'XTC probability',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'xtc_threshold',
+					key: SETTINGS_KEYS.XTC_THRESHOLD,
 					label: 'XTC threshold',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'typ_p',
+					key: SETTINGS_KEYS.TYP_P,
 					label: 'Typical P',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'max_tokens',
+					key: SETTINGS_KEYS.MAX_TOKENS,
 					label: 'Max tokens',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'samplers',
+					key: SETTINGS_KEYS.SAMPLERS,
 					label: 'Samplers',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'backend_sampling',
+					key: SETTINGS_KEYS.BACKEND_SAMPLING,
 					label: 'Backend sampling',
-					type: 'checkbox'
+					type: SettingsFieldType.CHECKBOX
 				}
 			]
 		},
 		{
-			title: 'Penalties',
+			title: SETTINGS_SECTION_TITLES.PENALTIES,
 			icon: AlertTriangle,
 			fields: [
 				{
-					key: 'repeat_last_n',
+					key: SETTINGS_KEYS.REPEAT_LAST_N,
 					label: 'Repeat last N',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'repeat_penalty',
+					key: SETTINGS_KEYS.REPEAT_PENALTY,
 					label: 'Repeat penalty',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'presence_penalty',
+					key: SETTINGS_KEYS.PRESENCE_PENALTY,
 					label: 'Presence penalty',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'frequency_penalty',
+					key: SETTINGS_KEYS.FREQUENCY_PENALTY,
 					label: 'Frequency penalty',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'dry_multiplier',
+					key: SETTINGS_KEYS.DRY_MULTIPLIER,
 					label: 'DRY multiplier',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'dry_base',
+					key: SETTINGS_KEYS.DRY_BASE,
 					label: 'DRY base',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'dry_allowed_length',
+					key: SETTINGS_KEYS.DRY_ALLOWED_LENGTH,
 					label: 'DRY allowed length',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				},
 				{
-					key: 'dry_penalty_last_n',
+					key: SETTINGS_KEYS.DRY_PENALTY_LAST_N,
 					label: 'DRY penalty last N',
-					type: 'input'
+					type: SettingsFieldType.INPUT
 				}
 			]
 		},
 		{
-			title: 'Import/Export',
-			icon: Database,
-			fields: []
+			title: SETTINGS_SECTION_TITLES.AGENTIC,
+			icon: ListRestart,
+			fields: [
+				{
+					key: SETTINGS_KEYS.AGENTIC_MAX_TURNS,
+					label: 'Agentic turns',
+					type: SettingsFieldType.INPUT
+				},
+				{
+					key: SETTINGS_KEYS.AGENTIC_MAX_TOOL_PREVIEW_LINES,
+					label: 'Max lines per tool preview',
+					type: SettingsFieldType.INPUT
+				}
+			]
 		},
 		{
-			title: 'Developer',
+			title: SETTINGS_SECTION_TITLES.DEVELOPER,
 			icon: Code,
 			fields: [
 				{
-					key: 'showToolCalls',
-					label: 'Show tool call labels',
-					type: 'checkbox'
+					key: SETTINGS_KEYS.PRE_ENCODE_CONVERSATION,
+					label: 'Pre-fill KV cache after response',
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'disableReasoningFormat',
-					label: 'Show raw LLM output',
-					type: 'checkbox'
+					key: SETTINGS_KEYS.DISABLE_REASONING_PARSING,
+					label: 'Disable server-side thinking extraction',
+					type: SettingsFieldType.CHECKBOX
 				},
 				{
-					key: 'custom',
+					key: SETTINGS_KEYS.EXCLUDE_REASONING_FROM_CONTEXT,
+					label: 'Strip thinking from message history',
+					type: SettingsFieldType.CHECKBOX
+				},
+				{
+					key: SETTINGS_KEYS.SHOW_RAW_OUTPUT_SWITCH,
+					label: 'Enable raw output toggle',
+					type: SettingsFieldType.CHECKBOX
+				},
+				{
+					key: SETTINGS_KEYS.CUSTOM,
 					label: 'Custom JSON',
-					type: 'textarea'
+					type: SettingsFieldType.TEXTAREA
 				}
 			]
 		}
@@ -280,7 +329,9 @@
 		// }
 	];
 
-	let activeSection = $state('General');
+	let activeSection = $derived<SettingsSectionTitle>(
+		initialSection ?? SETTINGS_SECTION_TITLES.GENERAL
+	);
 	let currentSection = $derived(
 		settingSections.find((section) => section.title === activeSection) || settingSections[0]
 	);
@@ -290,10 +341,16 @@
 	let canScrollRight = $state(false);
 	let scrollContainer: HTMLDivElement | undefined = $state();
 
+	$effect(() => {
+		if (initialSection) {
+			activeSection = initialSection;
+		}
+	});
+
 	function handleThemeChange(newTheme: string) {
 		localConfig.theme = newTheme;
 
-		setMode(newTheme as 'light' | 'dark' | 'system');
+		setMode(newTheme as ColorMode);
 	}
 
 	function handleConfigChange(key: string, value: string | boolean) {
@@ -303,7 +360,7 @@
 	function handleReset() {
 		localConfig = { ...config() };
 
-		setMode(localConfig.theme as 'light' | 'dark' | 'system');
+		setMode(localConfig.theme as ColorMode);
 	}
 
 	function handleSave() {
@@ -319,33 +376,16 @@
 
 		// Convert numeric strings to numbers for numeric fields
 		const processedConfig = { ...localConfig };
-		const numericFields = [
-			'temperature',
-			'top_k',
-			'top_p',
-			'min_p',
-			'max_tokens',
-			'pasteLongTextToFileLen',
-			'dynatemp_range',
-			'dynatemp_exponent',
-			'typ_p',
-			'xtc_probability',
-			'xtc_threshold',
-			'repeat_last_n',
-			'repeat_penalty',
-			'presence_penalty',
-			'frequency_penalty',
-			'dry_multiplier',
-			'dry_base',
-			'dry_allowed_length',
-			'dry_penalty_last_n'
-		];
 
-		for (const field of numericFields) {
+		for (const field of NUMERIC_FIELDS) {
 			if (processedConfig[field] !== undefined && processedConfig[field] !== '') {
 				const numValue = Number(processedConfig[field]);
 				if (!isNaN(numValue)) {
-					processedConfig[field] = numValue;
+					if ((POSITIVE_INTEGER_FIELDS as readonly string[]).includes(field)) {
+						processedConfig[field] = Math.max(1, Math.round(numValue));
+					} else {
+						processedConfig[field] = numValue;
+					}
 				} else {
 					alert(`Invalid numeric value for ${field}. Please enter a valid number.`);
 					return;
@@ -403,106 +443,116 @@
 	});
 </script>
 
-<div class="flex h-full flex-col overflow-hidden md:flex-row">
-	<!-- Desktop Sidebar -->
-	<div class="hidden w-64 border-r border-border/30 p-6 md:block">
-		<nav class="space-y-1 py-2">
-			{#each settingSections as section (section.title)}
-				<button
-					class="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent {activeSection ===
-					section.title
-						? 'bg-accent text-accent-foreground'
-						: 'text-muted-foreground'}"
-					onclick={() => (activeSection = section.title)}
-				>
-					<section.icon class="h-4 w-4" />
+<div class="flex h-full flex-col overflow-y-auto {className} w-full" in:fade={{ duration: 150 }}>
+	<div class="flex flex-1 flex-col gap-4 md:flex-row">
+		<!-- Desktop Sidebar -->
+		<div class="sticky top-0 hidden w-64 flex-col self-start bg-background pt-8 pb-4 md:flex">
+			<div class="flex items-center gap-2 pb-8">
+				<Settings class="h-6 w-6" />
+				<h1 class="text-2xl font-semibold">Settings</h1>
+			</div>
+			<nav class="space-y-1">
+				{#each settingSections as section (section.title)}
+					<button
+						class="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent {activeSection ===
+						section.title
+							? 'bg-accent text-accent-foreground'
+							: 'text-muted-foreground'}"
+						onclick={() => (activeSection = section.title)}
+					>
+						<section.icon class="h-4 w-4" />
 
-					<span class="ml-2">{section.title}</span>
-				</button>
-			{/each}
-		</nav>
-	</div>
+						<span class="ml-2">{section.title}</span>
+					</button>
+				{/each}
+			</nav>
+		</div>
 
-	<!-- Mobile Header with Horizontal Scrollable Menu -->
-	<div class="flex flex-col pt-6 md:hidden">
-		<div class="border-b border-border/30 py-4">
-			<!-- Horizontal Scrollable Category Menu with Navigation -->
-			<div class="relative flex items-center" style="scroll-padding: 1rem;">
-				<button
-					class="absolute left-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-muted shadow-md backdrop-blur-sm transition-opacity hover:bg-accent {canScrollLeft
-						? 'opacity-100'
-						: 'pointer-events-none opacity-0'}"
-					onclick={scrollLeft}
-					aria-label="Scroll left"
-				>
-					<ChevronLeft class="h-4 w-4" />
-				</button>
+		<!-- Mobile Header with Horizontal Scrollable Menu -->
+		<div class="sticky top-0 z-10 flex flex-col bg-background md:hidden">
+			<div class="flex items-center gap-2 px-4 pt-4 pb-2 md:pt-6">
+				<Settings class="h-5 w-5 md:h-6 md:w-6" />
 
-				<div
-					class="scrollbar-hide overflow-x-auto py-2"
-					bind:this={scrollContainer}
-					onscroll={updateScrollButtons}
-				>
-					<div class="flex min-w-max gap-2">
-						{#each settingSections as section (section.title)}
-							<button
-								class="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors first:ml-4 last:mr-4 hover:bg-accent {activeSection ===
-								section.title
-									? 'bg-accent text-accent-foreground'
-									: 'text-muted-foreground'}"
-								onclick={(e: MouseEvent) => {
-									activeSection = section.title;
-									scrollToCenter(e.currentTarget as HTMLElement);
-								}}
-							>
-								<section.icon class="h-4 w-4 flex-shrink-0" />
-								<span>{section.title}</span>
-							</button>
-						{/each}
+				<h1 class="text-xl font-semibold md:text-2xl">Settings</h1>
+			</div>
+
+			<div class="border-b border-border/30 py-2">
+				<!-- Horizontal Scrollable Category Menu with Navigation -->
+				<div class="relative flex items-center" style="scroll-padding: 1rem;">
+					<button
+						class="absolute left-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-muted shadow-md backdrop-blur-sm transition-opacity hover:bg-accent {canScrollLeft
+							? 'opacity-100'
+							: 'pointer-events-none opacity-0'}"
+						onclick={scrollLeft}
+						aria-label="Scroll left"
+					>
+						<ChevronLeft class="h-4 w-4" />
+					</button>
+
+					<div
+						class="scrollbar-hide overflow-x-auto py-2"
+						bind:this={scrollContainer}
+						onscroll={updateScrollButtons}
+					>
+						<div class="flex min-w-max gap-2">
+							{#each settingSections as section (section.title)}
+								<button
+									class="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap transition-colors first:ml-4 last:mr-4 hover:bg-accent {activeSection ===
+									section.title
+										? 'bg-accent text-accent-foreground'
+										: 'text-muted-foreground'}"
+									onclick={(e: MouseEvent) => {
+										activeSection = section.title;
+										scrollToCenter(e.currentTarget as HTMLElement);
+									}}
+								>
+									<section.icon class="h-4 w-4 flex-shrink-0" />
+									<span>{section.title}</span>
+								</button>
+							{/each}
+						</div>
 					</div>
-				</div>
 
-				<button
-					class="absolute right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-muted shadow-md backdrop-blur-sm transition-opacity hover:bg-accent {canScrollRight
-						? 'opacity-100'
-						: 'pointer-events-none opacity-0'}"
-					onclick={scrollRight}
-					aria-label="Scroll right"
-				>
-					<ChevronRight class="h-4 w-4" />
-				</button>
+					<button
+						class="absolute right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-muted shadow-md backdrop-blur-sm transition-opacity hover:bg-accent {canScrollRight
+							? 'opacity-100'
+							: 'pointer-events-none opacity-0'}"
+						onclick={scrollRight}
+						aria-label="Scroll right"
+					>
+						<ChevronRight class="h-4 w-4" />
+					</button>
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<ScrollArea class="max-h-[calc(100dvh-13.5rem)] flex-1 md:max-h-[calc(100vh-13.5rem)]">
-		<div class="space-y-6 p-4 md:p-6">
-			<div class="grid">
-				<div class="mb-6 flex hidden items-center gap-2 border-b border-border/30 pb-6 md:flex">
-					<currentSection.icon class="h-5 w-5" />
+		<div class="mx-auto max-w-3xl flex-1">
+			<div class="space-y-6 p-4 md:p-6 md:pt-28">
+				<div class="grid">
+					<div class="mb-6 flex hidden items-center gap-2 border-b border-border/30 pb-6 md:flex">
+						<currentSection.icon class="h-5 w-5" />
 
-					<h3 class="text-lg font-semibold">{currentSection.title}</h3>
+						<h3 class="text-lg font-semibold">{currentSection.title}</h3>
+					</div>
+
+					{#if currentSection.fields}
+						<div class="space-y-6">
+							<ChatSettingsFields
+								fields={currentSection.fields}
+								{localConfig}
+								onConfigChange={handleConfigChange}
+								onThemeChange={handleThemeChange}
+							/>
+						</div>
+					{/if}
 				</div>
 
-				{#if currentSection.title === 'Import/Export'}
-					<ChatSettingsImportExportTab />
-				{:else}
-					<div class="space-y-6">
-						<ChatSettingsFields
-							fields={currentSection.fields}
-							{localConfig}
-							onConfigChange={handleConfigChange}
-							onThemeChange={handleThemeChange}
-						/>
-					</div>
-				{/if}
+				<div class="mt-8 border-t border-border/30 pt-6">
+					<p class="text-xs text-muted-foreground">Settings are saved in browser's localStorage</p>
+				</div>
 			</div>
 
-			<div class="mt-8 border-t pt-6">
-				<p class="text-xs text-muted-foreground">Settings are saved in browser's localStorage</p>
-			</div>
+			<ChatSettingsFooter onReset={handleReset} onSave={handleSave} />
 		</div>
-	</ScrollArea>
+	</div>
 </div>
-
-<ChatSettingsFooter onReset={handleReset} onSave={handleSave} />

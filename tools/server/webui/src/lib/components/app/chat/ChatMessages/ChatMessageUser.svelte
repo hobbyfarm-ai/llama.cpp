@@ -1,94 +1,47 @@
 <script lang="ts">
-	import { Card } from '$lib/components/ui/card';
-	import { ChatAttachmentsList, MarkdownContent } from '$lib/components/app';
-	import { config } from '$lib/stores/settings.svelte';
+	import { getMessageEditContext } from '$lib/contexts';
 	import ChatMessageActions from './ChatMessageActions.svelte';
 	import ChatMessageEditForm from './ChatMessageEditForm.svelte';
+	import { MessageRole } from '$lib/enums';
+	import ChatMessageUserBubble from './ChatMessageUserBubble.svelte';
 
 	interface Props {
 		class?: string;
 		message: DatabaseMessage;
-		isEditing: boolean;
-		editedContent: string;
-		editedExtras?: DatabaseMessageExtra[];
-		editedUploadedFiles?: ChatUploadedFile[];
 		siblingInfo?: ChatMessageSiblingInfo | null;
-		showDeleteDialog: boolean;
 		deletionInfo: {
 			totalCount: number;
 			userMessages: number;
 			assistantMessages: number;
 			messageTypes: string[];
 		} | null;
-		onCancelEdit: () => void;
-		onSaveEdit: () => void;
-		onSaveEditOnly?: () => void;
-		onEditKeydown: (event: KeyboardEvent) => void;
-		onEditedContentChange: (content: string) => void;
-		onEditedExtrasChange?: (extras: DatabaseMessageExtra[]) => void;
-		onEditedUploadedFilesChange?: (files: ChatUploadedFile[]) => void;
-		onCopy: () => void;
+		showDeleteDialog: boolean;
 		onEdit: () => void;
 		onDelete: () => void;
 		onConfirmDelete: () => void;
-		onNavigateToSibling?: (siblingId: string) => void;
+		onForkConversation?: (options: { name: string; includeAttachments: boolean }) => void;
 		onShowDeleteDialogChange: (show: boolean) => void;
-		textareaElement?: HTMLTextAreaElement;
+		onNavigateToSibling?: (siblingId: string) => void;
+		onCopy: () => void;
 	}
 
 	let {
 		class: className = '',
 		message,
-		isEditing,
-		editedContent,
-		editedExtras = [],
-		editedUploadedFiles = [],
 		siblingInfo = null,
-		showDeleteDialog,
 		deletionInfo,
-		onCancelEdit,
-		onSaveEdit,
-		onSaveEditOnly,
-		onEditKeydown,
-		onEditedContentChange,
-		onEditedExtrasChange,
-		onEditedUploadedFilesChange,
-		onCopy,
+		showDeleteDialog,
 		onEdit,
 		onDelete,
 		onConfirmDelete,
-		onNavigateToSibling,
+		onForkConversation,
 		onShowDeleteDialogChange,
-		textareaElement = $bindable()
+		onNavigateToSibling,
+		onCopy
 	}: Props = $props();
 
-	let isMultiline = $state(false);
-	let messageElement: HTMLElement | undefined = $state();
-	const currentConfig = config();
-
-	$effect(() => {
-		if (!messageElement || !message.content.trim()) return;
-
-		if (message.content.includes('\n')) {
-			isMultiline = true;
-			return;
-		}
-
-		const resizeObserver = new ResizeObserver((entries) => {
-			for (const entry of entries) {
-				const element = entry.target as HTMLElement;
-				const estimatedSingleLineHeight = 24; // Typical line height for text-md
-
-				isMultiline = element.offsetHeight > estimatedSingleLineHeight * 1.5;
-			}
-		});
-
-		resizeObserver.observe(messageElement);
-
-		return () => {
-			resizeObserver.disconnect();
-		};
-	});
+	// Get contexts
+	const editCtx = getMessageEditContext();
 </script>
 
 <div
@@ -96,50 +49,14 @@
 	class="group flex flex-col items-end gap-3 md:gap-2 {className}"
 	role="group"
 >
-	{#if isEditing}
-		<ChatMessageEditForm
-			bind:textareaElement
-			messageId={message.id}
-			{editedContent}
-			{editedExtras}
-			{editedUploadedFiles}
-			originalContent={message.content}
-			originalExtras={message.extra}
-			showSaveOnlyOption={!!onSaveEditOnly}
-			{onCancelEdit}
-			{onSaveEdit}
-			{onSaveEditOnly}
-			{onEditKeydown}
-			{onEditedContentChange}
-			{onEditedExtrasChange}
-			{onEditedUploadedFilesChange}
-		/>
+	{#if editCtx.isEditing}
+		<ChatMessageEditForm />
 	{:else}
-		{#if message.extra && message.extra.length > 0}
-			<div class="mb-2 max-w-[80%]">
-				<ChatAttachmentsList attachments={message.extra} readonly={true} imageHeight="h-80" />
-			</div>
-		{/if}
-
-		{#if message.content.trim()}
-			<Card
-				class="max-w-[80%] rounded-[1.125rem] border-none bg-primary px-3.75 py-1.5 text-primary-foreground data-[multiline]:py-2.5"
-				data-multiline={isMultiline ? '' : undefined}
-			>
-				{#if currentConfig.renderUserContentAsMarkdown}
-					<div bind:this={messageElement} class="text-md">
-						<MarkdownContent
-							class="markdown-user-content text-primary-foreground"
-							content={message.content}
-						/>
-					</div>
-				{:else}
-					<span bind:this={messageElement} class="text-md whitespace-pre-wrap">
-						{message.content}
-					</span>
-				{/if}
-			</Card>
-		{/if}
+		<ChatMessageUserBubble
+			content={message.content}
+			attachments={message.extra}
+			renderMarkdown={true}
+		/>
 
 		{#if message.timestamp}
 			<div class="max-w-[80%]">
@@ -151,11 +68,12 @@
 					{onCopy}
 					{onDelete}
 					{onEdit}
+					{onForkConversation}
 					{onNavigateToSibling}
 					{onShowDeleteDialogChange}
 					{siblingInfo}
 					{showDeleteDialog}
-					role="user"
+					role={MessageRole.USER}
 				/>
 			</div>
 		{/if}
