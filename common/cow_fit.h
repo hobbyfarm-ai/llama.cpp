@@ -13,6 +13,30 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// COW_FIT_API: export decoration for the C ABI below. Mirrors LLAMA_API's
+// pattern (see include/llama.h):
+//   - Linux .so / macOS .dylib: __attribute__((visibility("default"))) ensures
+//     the symbol is exported even if someone later builds with
+//     -fvisibility=hidden.
+//   - Windows .dll (MSVC native): __declspec(dllexport) when building
+//     llama-common (LLAMA_COMMON_BUILD set by the CMake target), or
+//     __declspec(dllimport) for compile-time consumers. FFI consumers using
+//     LoadLibrary+GetProcAddress (e.g. Dart) don't need dllimport.
+//   - MinGW and static builds: no decoration needed.
+#ifdef LLAMA_SHARED
+#    if defined(_WIN32) && !defined(__MINGW32__)
+#        ifdef LLAMA_COMMON_BUILD
+#            define COW_FIT_API __declspec(dllexport)
+#        else
+#            define COW_FIT_API __declspec(dllimport)
+#        endif
+#    else
+#        define COW_FIT_API __attribute__ ((visibility ("default")))
+#    endif
+#else
+#    define COW_FIT_API
+#endif
+
 #define COW_FIT_MAX_DEVICES 16
 
 enum cow_fit_status {
@@ -52,7 +76,7 @@ struct cow_fit_max_ctx_result {
 };
 
 // Pure prediction; never mutates inputs.
-struct cow_fit_prediction cow_fit_predict(
+COW_FIT_API struct cow_fit_prediction cow_fit_predict(
     const char                        * path_model,
     const struct llama_model_params   * mparams,
     const struct llama_context_params * cparams);
@@ -60,7 +84,7 @@ struct cow_fit_prediction cow_fit_predict(
 // Binary-search the largest n_ctx in [n_ctx_min, n_ctx_max] (capped at the
 // model's n_ctx_train) such that every device's predicted bytes plus the
 // caller-supplied headroom_per_device[i] fits inside its free_bytes.
-struct cow_fit_max_ctx_result cow_fit_max_ctx(
+COW_FIT_API struct cow_fit_max_ctx_result cow_fit_max_ctx(
     const char                        * path_model,
     const struct llama_model_params   * mparams,
     const struct llama_context_params * cparams,
