@@ -13771,6 +13771,16 @@ static size_t ggml_backend_vk_host_buffer_type_get_max_size(ggml_backend_buffer_
     UNUSED(buft);
 }
 
+// Mirrors the +32 safety pad that ggml_backend_vk_host_buffer_type_alloc_buffer
+// adds to every allocation (PR #7360 — "Fix empty Vulkan host buffers"). Lets
+// size-only allocation paths (ggml_gallocr_reserve_n_size, shadow vbuffer)
+// compute the same total bytes as the real-allocation path.
+static size_t ggml_backend_vk_host_buffer_type_get_alloc_size_for_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+    return size + 32;
+
+    UNUSED(buft);
+}
+
 // Should be changed to return device-specific host buffer type
 // but that probably requires changes in llama.cpp
 ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
@@ -13782,6 +13792,7 @@ ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
             /* .get_max_size     = */ ggml_backend_vk_host_buffer_type_get_max_size,
             /* .get_alloc_size   = */ ggml_backend_cpu_buffer_type()->iface.get_alloc_size,
             /* .is_host          = */ ggml_backend_cpu_buffer_type()->iface.is_host,
+            /* .get_alloc_size_for_buffer = */ ggml_backend_vk_host_buffer_type_get_alloc_size_for_buffer,
         },
         /* .device   = */ ggml_backend_reg_dev_get(ggml_backend_vk_reg(), 0),
         /* .context  = */ nullptr,

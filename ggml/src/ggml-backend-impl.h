@@ -26,6 +26,12 @@ extern "C" {
         size_t                (*get_alloc_size)(ggml_backend_buffer_type_t buft, const struct ggml_tensor * tensor);
         // (optional) check if tensor data is in host memory and uses standard ggml tensor layout (defaults to false)
         bool                  (*is_host)       (ggml_backend_buffer_type_t buft);
+        // (optional) actual buffer size that alloc_buffer will allocate for a request of `size` bytes.
+        // Lets size-only allocation paths (ggml_gallocr_reserve_n_size, ggml_vbuffer_alloc_shadow)
+        // match what alloc_buffer actually returns. Defaults to identity when not set. Override
+        // when alloc_buffer adjusts the size — e.g. Vulkan_Host adds 32 bytes per allocation as a
+        // safety pad (PR #7360 — empty-buffer fix).
+        size_t                (*get_alloc_size_for_buffer)(ggml_backend_buffer_type_t buft, size_t size);
     };
 
     struct ggml_backend_buffer_type {

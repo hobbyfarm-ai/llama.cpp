@@ -58,6 +58,21 @@ size_t ggml_backend_buft_get_max_size(ggml_backend_buffer_type_t buft) {
     return SIZE_MAX;
 }
 
+size_t ggml_backend_buft_get_alloc_size_for_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+    GGML_ASSERT(buft);
+    // ggml_backend_buft_alloc_buffer skips alloc_buffer entirely for zero-byte requests and
+    // returns a dummy 0-byte buffer (line 38-44), so per-allocation overhead (e.g. Vulkan_Host's
+    // +32) doesn't apply. Mirror that here so size-only callers see the same result.
+    if (size == 0) {
+        return 0;
+    }
+    // get_alloc_size_for_buffer is optional; defaults to identity (the request size).
+    if (buft->iface.get_alloc_size_for_buffer) {
+        return buft->iface.get_alloc_size_for_buffer(buft, size);
+    }
+    return size;
+}
+
 size_t ggml_backend_buft_get_alloc_size(ggml_backend_buffer_type_t buft, const struct ggml_tensor * tensor) {
     GGML_ASSERT(buft);
     // get_alloc_size is optional, defaults to ggml_nbytes
@@ -1833,15 +1848,15 @@ void ggml_backend_sched_reset(ggml_backend_sched_t sched) {
 void ggml_backend_sched_reserve_size(ggml_backend_sched_t sched, struct ggml_cgraph * measure_graph, size_t * sizes) {
     GGML_ASSERT(sched);
     GGML_ASSERT((int)sched->hash_set.size >= measure_graph->n_nodes + measure_graph->n_leafs);
-    GGML_ASSERT(sizes);
 
-    ggml_backend_sched_reset(sched);
-
+    // Match ggml_backend_sched_reserve's order (synchronize → split_graph → reserve →
+    // reset). A leading reset would wipe sched->hv_tensor_copies before split_graph,
+    // which the pipeline_parallel input duplicate tracking relies on; without this
+    // match, multi-GPU pp=on chunk allocations diverge from real-alloc.
     ggml_backend_sched_synchronize(sched);
-
     ggml_backend_sched_split_graph(sched, measure_graph);
-
     ggml_gallocr_reserve_n_size(sched->galloc, &sched->graph, sched->node_backend_ids, sched->leaf_backend_ids, sizes);
+    ggml_backend_sched_reset(sched);
 }
 
 bool ggml_backend_sched_reserve(ggml_backend_sched_t sched, struct ggml_cgraph * measure_graph) {
@@ -2334,6 +2349,7 @@ ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type(void) {
             /* .get_max_size     = */ NULL, // defaults to SIZE_MAX
             /* .get_alloc_size   = */ NULL, // defaults to ggml_nbytes
             /* .is_host          = */ ggml_backend_cpu_buffer_type_is_host,
+            /* .get_alloc_size_for_buffer = */ NULL,
         },
         /* .device  = */ NULL, // FIXME ggml_backend_reg_dev_get(ggml_backend_cpu_reg(), 0),
         /* .context = */ NULL,
@@ -2357,6 +2373,7 @@ static ggml_backend_buffer_type_t ggml_backend_cpu_buffer_from_ptr_type(void) {
             /* .get_max_size     = */ NULL, // defaults to SIZE_MAX
             /* .get_alloc_size   = */ NULL, // defaults to ggml_nbytes
             /* .is_host          = */ ggml_backend_cpu_buffer_type_is_host,
+            /* .get_alloc_size_for_buffer = */ NULL,
         },
         /* .device  = */ NULL, // FIXME ggml_backend_reg_dev_get(ggml_backend_cpu_reg(), 0),
         /* .context = */ NULL,
