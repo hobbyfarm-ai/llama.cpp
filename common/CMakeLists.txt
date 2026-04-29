@@ -75,6 +75,10 @@ add_library(${TARGET}
     download.h
     fit.cpp
     fit.h
+    cow_fit.cpp
+    cow_fit.h
+    cow_fit_breakdown.cpp
+    cow_fit_breakdown.h
     hf-cache.cpp
     hf-cache.h
     http.h
