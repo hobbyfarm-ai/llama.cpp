@@ -438,6 +438,36 @@ static struct vbuffer * ggml_vbuffer_alloc(ggml_backend_buffer_type_t buft, cons
     return buf;
 }
 
+// Shadow vbuffer: same shape as ggml_vbuffer_alloc but with no backing memory.
+// Each chunk is a backend buffer initialized via ggml_backend_buffer_init directly,
+// bypassing the backend's alloc_buffer. Chunks have correct declared sizes (so
+// vbuffer_chunk_size, vbuffer_size, and the realloc check in ggml_gallocr_reserve_n_impl
+// all return correct values) and a NULL iface (free_buffer is gracefully no-op'd in
+// ggml_backend_buffer_free; get_base returns NULL via the size>0 + null-iface fallback
+// in ggml_backend_buffer_get_base). Used by the no_alloc=true path so multiple
+// reservations accumulate per-chunk maxes the same way real-alloc does (where the
+// vbuffer grows monotonically across calls via the realloc-or-keep rule).
+static struct vbuffer * ggml_vbuffer_alloc_shadow(ggml_backend_buffer_type_t buft, const struct ggml_dyn_tallocr * talloc, enum ggml_backend_buffer_usage usage) {
+    static const struct ggml_backend_buffer_i shadow_iface = {0};
+
+    struct vbuffer * buf = (struct vbuffer *)calloc(1, sizeof(struct vbuffer));
+    if (buf == NULL) {
+        return NULL;
+    }
+
+    for (int n = 0; n < talloc->n_chunks; n++) {
+        const size_t requested = talloc->chunks[n]->max_size;
+        const size_t actual    = ggml_backend_buft_get_alloc_size_for_buffer(buft, requested);
+        buf->chunks[n] = ggml_backend_buffer_init(buft, shadow_iface, /*context=*/ NULL, actual);
+        if (buf->chunks[n] == NULL) {
+            ggml_vbuffer_free(buf);
+            return NULL;
+        }
+        ggml_backend_buffer_set_usage(buf->chunks[n], usage);
+    }
+    return buf;
+}
+
 static void ggml_vbuffer_tensor_alloc(struct vbuffer * buf, struct ggml_tensor * tensor, struct buffer_address buf_addr) {
     void * base = ggml_backend_buffer_get_base(buf->chunks[buf_addr.chunk]);
     void * addr = (char *)base + buf_addr.offset;
@@ -933,7 +963,15 @@ static bool ggml_gallocr_reserve_n_impl(
 #endif
             ggml_vbuffer_free(galloc->buffers[i]);
             if (no_alloc) {
-                galloc->buffers[i] = NULL;
+                // Build a shadow vbuffer that tracks chunk sizes without backing memory.
+                // Without this, no_alloc mode would lose all per-chunk state across calls
+                // (buffers[i]=NULL forces realloc on every call), defeating the realloc-or-keep
+                // logic above which is the source of monotonic max-per-chunk accumulation.
+                galloc->buffers[i] = ggml_vbuffer_alloc_shadow(galloc->bufts[i], galloc->buf_tallocs[i], GGML_BACKEND_BUFFER_USAGE_COMPUTE);
+                if (galloc->buffers[i] == NULL) {
+                    GGML_LOG_ERROR("%s: failed to allocate shadow buffer for %s\n", __func__, ggml_backend_buft_name(galloc->bufts[i]));
+                    return false;
+                }
             } else {
                 galloc->buffers[i] = ggml_vbuffer_alloc(galloc->bufts[i], galloc->buf_tallocs[i], GGML_BACKEND_BUFFER_USAGE_COMPUTE);
                 if (galloc->buffers[i] == NULL) {
@@ -950,10 +988,13 @@ static bool ggml_gallocr_reserve_n_impl(
 void ggml_gallocr_reserve_n_size(
         ggml_gallocr_t galloc, struct ggml_cgraph * graph, const int * node_buffer_ids, const int * leaf_buffer_ids, size_t * sizes) {
     GGML_ASSERT(ggml_gallocr_reserve_n_impl(galloc, graph, node_buffer_ids, leaf_buffer_ids, /*no_alloc =*/ true));
-    for (int i = 0; i < galloc->n_buffers; i++) {
-        sizes[i] = 0;
-        for (int c = 0; c < galloc->buf_tallocs[i]->n_chunks; c++) {
-            sizes[i] += galloc->buf_tallocs[i]->chunks[c]->max_size;
+    // After _reserve_n_impl(no_alloc=true), galloc->buffers[i] holds shadow vbuffers
+    // whose chunks reflect the post-realloc-or-keep per-chunk sizes. The shadow
+    // accumulation is the side effect callers may want even without reading the
+    // sizes — sizes is therefore optional.
+    if (sizes) {
+        for (int i = 0; i < galloc->n_buffers; i++) {
+            sizes[i] = ggml_gallocr_get_buffer_size(galloc, i);
         }
     }
 }

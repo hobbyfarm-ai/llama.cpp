@@ -1772,6 +1772,7 @@ static ggml_backend_buffer_type_i ggml_backend_hexagon_buffer_type_interface = {
     /* .get_max_size     = */ ggml_backend_hexagon_buffer_type_get_max_size,
     /* .get_alloc_size   = */ ggml_backend_hexagon_buffer_type_get_alloc_size,
     /* .is_host          = */ ggml_backend_hexagon_buffer_type_is_host,
+    /* .get_alloc_size_for_buffer = */ NULL,
 };
 
 static ggml_backend_buffer_type_i ggml_backend_hexagon_repack_buffer_type_interface = {
@@ -1781,6 +1782,7 @@ static ggml_backend_buffer_type_i ggml_backend_hexagon_repack_buffer_type_interf
     /* .get_max_size     = */ ggml_backend_hexagon_buffer_type_get_max_size,
     /* .get_alloc_size   = */ ggml_backend_hexagon_buffer_type_get_alloc_size,
     /* .is_host          = */ ggml_backend_hexagon_repack_buffer_type_is_host,
+    /* .get_alloc_size_for_buffer = */ NULL,
 };
 
 struct ggml_hexagon_opbatch {
