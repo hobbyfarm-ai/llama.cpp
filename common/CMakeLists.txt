@@ -60,6 +60,10 @@ add_library(${TARGET}
     arg.cpp
     arg.h
     base64.hpp
+    best_fit.cpp
+    best_fit.h
+    best_fit_breakdown.cpp
+    best_fit_breakdown.h
     chat-auto-parser-generator.cpp
     chat-auto-parser-helpers.cpp
     chat-auto-parser.h
@@ -184,3 +188,10 @@ if (LLAMA_LLGUIDANCE)
 endif()
 
 target_link_libraries(${TARGET} PUBLIC llama Threads::Threads)
+
+if (BUILD_SHARED_LIBS)
+    # Mirror llama's LLAMA_BUILD/LLAMA_SHARED pattern so best_fit's
+    # BEST_FIT_API macro emits dllexport when building llama-common.dll on MSVC.
+    # No-op on Linux/macOS (visibility("default") is already correct).
+    target_compile_definitions(${TARGET} PRIVATE LLAMA_COMMON_BUILD)
+endif()

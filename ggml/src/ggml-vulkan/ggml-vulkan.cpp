@@ -13113,6 +13113,13 @@ static size_t ggml_backend_vk_host_buffer_type_get_max_size(ggml_backend_buffer_
     UNUSED(buft);
 }
 
+// alloc_buffer pads every host allocation by 32 bytes
+static size_t ggml_backend_vk_host_buffer_type_get_alloc_size_for_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+    return size + 32;
+
+    UNUSED(buft);
+}
+
 ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
     static struct ggml_backend_buffer_type ggml_backend_vk_buffer_type_host = {
         /* .iface    = */ {
@@ -13124,6 +13131,7 @@ ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
             /* .get_alloc_size      = */ ggml_backend_cpu_buffer_type()->iface.get_alloc_size,
             /* .get_alloc_size_n    = */ NULL,
             /* .is_host             = */ ggml_backend_cpu_buffer_type()->iface.is_host,
+            /* .get_alloc_size_for_buffer = */ ggml_backend_vk_host_buffer_type_get_alloc_size_for_buffer,
         },
         /* .device   = */ ggml_backend_reg_dev_get(ggml_backend_vk_reg(), 0),
         /* .context  = */ nullptr,

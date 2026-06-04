@@ -43,8 +43,10 @@ runs:
     - name: Clear caches
       shell: bash
       run: |
+        # best-effort housekeeping: a delete race or transient API error must never fail the job and block a release
         bash scripts/ccache-clear.sh \
           --key "${{ inputs.key }}" \
           --older "${{ inputs.older }}" \
           --min "${{ inputs.min }}" \
-          ${{ inputs.dry-run == 'true' && '--dry-run' || '' }}
+          ${{ inputs.dry-run == 'true' && '--dry-run' || '' }} \
+          || echo "warning: cache cleanup failed (ignoring)"

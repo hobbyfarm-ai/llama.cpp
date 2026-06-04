@@ -2803,6 +2803,7 @@ static ggml_backend_buffer_type_i ggml_backend_hexagon_buffer_type_interface = {
     /* .get_alloc_size      = */ ggml_backend_hexagon_buffer_type_get_alloc_size,
     /* .get_alloc_size_n    = */ NULL,
     /* .is_host             = */ ggml_backend_hexagon_buffer_type_is_host,
+    /* .get_alloc_size_for_buffer = */ NULL,
 };
 
 static ggml_backend_buffer_type_i ggml_backend_hexagon_host_buffer_type_interface = {
@@ -2814,6 +2815,7 @@ static ggml_backend_buffer_type_i ggml_backend_hexagon_host_buffer_type_interfac
     /* .get_alloc_size      = */ ggml_backend_hexagon_buffer_type_get_alloc_size,
     /* .get_alloc_size_n    = */ NULL,
     /* .is_host             = */ ggml_backend_hexagon_host_buffer_type_is_host,
+    /* .get_alloc_size_for_buffer = */ NULL,
 };
 
 ggml_backend_hexagon_device_context::ggml_backend_hexagon_device_context(int dev_id, const ggml_hexagon_device_config & config, ggml_backend_dev_t dev)
