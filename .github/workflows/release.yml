@@ -1,31 +1,12 @@
 name: Release
 
 on:
-  workflow_dispatch: # allows manual triggering
+  workflow_dispatch: # manual triggering only — this fork does not release on push
     inputs:
       create_release:
         description: 'Create new release'
         required: true
         type: boolean
-  push:
-    branches:
-      - master
-    paths: [
-      '.github/workflows/release.yml',
-      '**/CMakeLists.txt',
-      '**/.cmake',
-      '**/*.h',
-      '**/*.hpp',
-      '**/*.c',
-      '**/*.cpp',
-      '**/*.cu',
-      '**/*.cuh',
-      '**/*.swift',
-      '**/*.m',
-      '**/*.metal',
-      '**/*.comp',
-      '**/*.glsl'
-    ]
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -176,8 +157,6 @@ jobs:
             os: ubuntu-22.04
           - build: 'arm64'
             os: ubuntu-24.04-arm
-          - build: 's390x'
-            os: ubuntu-24.04-s390x
 
     runs-on: ${{ matrix.os }}
 
@@ -341,7 +320,7 @@ jobs:
 
   android-arm64:
     needs: [check-release, get-version]
-    if: ${{ needs.check-release.outputs.should_release == 'true' }}
+    if: false  # cow desktop app does not ship Android — disabled on this fork
 
     runs-on: ubuntu-latest
 
@@ -1382,7 +1361,7 @@ jobs:
 
   ios-xcode:
     needs: [check-release, get-version]
-    if: ${{ needs.check-release.outputs.should_release == 'true' }}
+    if: false  # cow desktop app does not ship iOS — disabled on this fork
     runs-on: macos-26
 
     steps:
@@ -1533,7 +1512,7 @@ jobs:
 
   ui-build:
     needs: [check-release, get-version]
-    if: ${{ needs.check-release.outputs.should_release == 'true' }}
+    if: false  # cow app uses its own Flutter UI, not llama.cpp's WebUI — disabled on this fork
     uses: ./.github/workflows/ui-build.yml
     with:
       hf_ui_version: ${{ needs.get-version.outputs.ui_version }}
@@ -1553,19 +1532,18 @@ jobs:
       - windows
       - windows-cpu
       - windows-cuda
-      #- windows-sycl
+      - windows-sycl
       - windows-hip
       - windows-openvino
       - ubuntu-22-rocm
       - ubuntu-cpu
       - ubuntu-vulkan
       - ubuntu-24-openvino
-      #- ubuntu-24-sycl
-      - android-arm64
+      - ubuntu-24-sycl
       - macos-cpu
-      - ios-xcode
       #- openEuler-cann
-      - ui-build
+      # android-arm64 / ios-xcode / ui-build intentionally omitted:
+      # the cow desktop app does not ship them, so they must not gate the release.
 
     outputs:
       tag_name: ${{ steps.tag.outputs.name }}
@@ -1663,7 +1641,6 @@ jobs:
             **Linux:**
             - [Ubuntu x64 (CPU)](https://github.com/ggml-org/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz)
             - [Ubuntu arm64 (CPU)](https://github.com/ggml-org/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-arm64.tar.gz)
-            - [Ubuntu s390x (CPU)](https://github.com/ggml-org/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-s390x.tar.gz)
             - [Ubuntu x64 (Vulkan)](https://github.com/ggml-org/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-vulkan-x64.tar.gz)
             - [Ubuntu arm64 (Vulkan)](https://github.com/ggml-org/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-vulkan-arm64.tar.gz)
             - [Ubuntu x64 (ROCm 7.2)](https://github.com/ggml-org/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-rocm-7.2-x64.tar.gz)
@@ -1718,7 +1695,7 @@ jobs:
             }
 
   ui-publish:
-    if: ${{ ( github.event_name == 'push' && github.ref == 'refs/heads/master' ) || github.event.inputs.create_release == 'true' }}
+    if: false  # depends on ui-build, which is disabled on this fork — nothing to publish
 
     needs:
       - release

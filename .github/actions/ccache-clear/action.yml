@@ -18,5 +18,8 @@ runs:
         fi
         while read -r id key; do
           echo "Deleting cache: $id ($key)"
-          gh cache delete "$id"
+          gh cache delete "$id" || echo "  warning: could not delete cache $id (ignoring)"
         done <<< "$CACHES"
+        # Cache cleanup is best-effort housekeeping — a delete race or transient
+        # API error must never fail the job and block a release.
+        exit 0

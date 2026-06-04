@@ -420,30 +420,41 @@ llama_context::llama_context(
 
         // TODO: move these checks to ggml_backend_sched
         // enabling pipeline parallelism in the scheduler increases memory usage, so it is only done when necessary
-        bool pipeline_parallel =
-            model.n_devices() > 1 &&
-            model.n_gpu_layers() > model.hparams.n_layer_all &&
-            model.split_mode() == LLAMA_SPLIT_MODE_LAYER &&
-            cparams.offload_kqv &&
-            !model.has_tensor_overrides();
+        bool pipeline_parallel;
+        if (params.pipeline_parallel_type == LLAMA_PIPELINE_PARALLEL_DISABLED) {
+            pipeline_parallel = false;
+        } else {
+            // AUTO and ENABLED both validate prerequisites; AUTO falls back silently,
+            // ENABLED warns when prerequisites force it off.
+            pipeline_parallel =
+                model.n_devices() > 1 &&
+                model.n_gpu_layers() > model.hparams.n_layer_all &&
+                model.split_mode() == LLAMA_SPLIT_MODE_LAYER &&
+                cparams.offload_kqv &&
+                !model.has_tensor_overrides();
 
-        // pipeline parallelism requires support for async compute and events in all devices
-        if (pipeline_parallel) {
-            for (auto & backend : backends) {
-                auto dev_type = ggml_backend_dev_type(ggml_backend_get_device(backend.get()));
-                if (dev_type == GGML_BACKEND_DEVICE_TYPE_CPU) {
-                    // ignore CPU backend
-                    // TODO: should we ignore ACCEL types too?
-                    continue;
+            // pipeline parallelism requires support for async compute and events in all devices
+            if (pipeline_parallel) {
+                for (auto & backend : backends) {
+                    auto dev_type = ggml_backend_dev_type(ggml_backend_get_device(backend.get()));
+                    if (dev_type == GGML_BACKEND_DEVICE_TYPE_CPU) {
+                        // ignore CPU backend
+                        // TODO: should we ignore ACCEL types too?
+                        continue;
+                    }
+                    auto * dev = ggml_backend_get_device(backend.get());
+                    ggml_backend_dev_props props;
+                    ggml_backend_dev_get_props(dev, &props);
+                    if (!props.caps.async || !props.caps.events) {
+                        // device does not support async compute or events
+                        pipeline_parallel = false;
+                        break;
+                    }
                 }
-                auto * dev = ggml_backend_get_device(backend.get());
-                ggml_backend_dev_props props;
-                ggml_backend_dev_get_props(dev, &props);
-                if (!props.caps.async || !props.caps.events) {
-                    // device does not support async compute or events
-                    pipeline_parallel = false;
-                    break;
-                }
+            }
+
+            if (!pipeline_parallel && params.pipeline_parallel_type == LLAMA_PIPELINE_PARALLEL_ENABLED) {
+                LLAMA_LOG_WARN("%s: pipeline parallelism was explicitly enabled but prerequisites are not met - leaving disabled\n", __func__);
             }
         }
 
@@ -620,10 +631,19 @@ void llama_context::sched_reserve() {
 
     const uint32_t n_outputs_pp = std::min(n_tokens, cparams.n_outputs_max);
 
+    // In no_alloc=true mode the three worst-case reservations below need to go
+    // through the size-only path (so the gallocr's shadow vbuffer accumulates
+    // per-chunk maxes across calls). graph_reserve only fires that path when a
+    // sizes ptr is non-null, so we pass these throwaway buffers; values are
+    // ignored, only the side effect on the shadow vbuffer matters.
+    std::vector<size_t> sizes_pp(model.hparams.no_alloc ? backends.size() : 0);
+    std::vector<size_t> sizes_tg(model.hparams.no_alloc ? backends.size() : 0);
+    std::vector<size_t> sizes_pp2(model.hparams.no_alloc ? backends.size() : 0);
+
     // reserve pp (prompt processing) graph first so that buffers are only allocated once
     {
         auto * gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(),
-                model.hparams.no_alloc, model.hparams.no_alloc ? backend_buf_exp_size.data() : nullptr);
+                model.hparams.no_alloc, model.hparams.no_alloc ? sizes_pp.data() : nullptr);
         if (!gf) {
             if (cparams.pipeline_parallel) {
                 LLAMA_LOG_WARN("%s: compute buffer allocation failed, retrying without pipeline parallelism\n", __func__);
@@ -642,7 +662,8 @@ void llama_context::sched_reserve() {
 
     // reserve with tg (token generation) graph to get the number of splits and nodes
     {
-        auto * gf = graph_reserve(n_seqs, n_seqs, n_seqs, mctx.get(), model.hparams.no_alloc);
+        auto * gf = graph_reserve(n_seqs, n_seqs, n_seqs, mctx.get(),
+                model.hparams.no_alloc, model.hparams.no_alloc ? sizes_tg.data() : nullptr);
         if (!gf) {
             throw std::runtime_error("failed to allocate compute tg buffers");
         }
@@ -657,7 +678,8 @@ void llama_context::sched_reserve() {
         //
         // auto * gf = graph_reserve(n_tokens, 1, n_tokens, mctx.get());
         //
-        auto * gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(), model.hparams.no_alloc);
+        auto * gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(),
+                model.hparams.no_alloc, model.hparams.no_alloc ? sizes_pp2.data() : nullptr);
         if (!gf) {
             throw std::runtime_error("failed to allocate compute pp buffers");
         }
@@ -666,9 +688,7 @@ void llama_context::sched_reserve() {
     for (size_t i = 0; i < backend_ptrs.size(); ++i) {
         ggml_backend_t             backend = backend_ptrs[i];
         ggml_backend_buffer_type_t buft    = backend_buft[i];
-        if (!model.hparams.no_alloc) {
-            backend_buf_exp_size[i] = ggml_backend_sched_get_buffer_size(sched.get(), backend);
-        }
+        backend_buf_exp_size[i] = ggml_backend_sched_get_buffer_size(sched.get(), backend);
         if (backend_buf_exp_size[i] > 1) {
             LLAMA_LOG_INFO("%s: %10s compute buffer size = %8.2f MiB\n", __func__,
                     ggml_backend_buft_name(buft),
@@ -3476,6 +3496,7 @@ llama_context_params llama_context_default_params() {
         /*.pooling_type                =*/ LLAMA_POOLING_TYPE_UNSPECIFIED,
         /*.attention_type              =*/ LLAMA_ATTENTION_TYPE_UNSPECIFIED,
         /*.flash_attn_type             =*/ LLAMA_FLASH_ATTN_TYPE_AUTO,
+        /*.pipeline_parallel_type      =*/ LLAMA_PIPELINE_PARALLEL_AUTO,
         /*.rope_freq_base              =*/ 0.0f,
         /*.rope_freq_scale             =*/ 0.0f,
         /*.yarn_ext_factor             =*/ -1.0f,
