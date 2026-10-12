@@ -166,15 +166,44 @@ bool pp_fallback_possible(llama_model * model, const llama_context_params & cpar
         && llama_model_n_devices(model) > 1;
 }
 
-bool prediction_fits_budget(const best_fit_prediction & pred, const size_t * headroom_per_device) {
+// Whether a device's memory is the host's RAM: integrated GPUs report IGPU,
+// while Metal on Apple Silicon reports GPU but builds buffers from host
+// pointers. Such a device and the host draw on one pool.
+bool shares_host_memory(ggml_backend_dev_t dev) {
+    if (!dev) return false;
+    switch (ggml_backend_dev_type(dev)) {
+        case GGML_BACKEND_DEVICE_TYPE_IGPU:
+            return true;
+        case GGML_BACKEND_DEVICE_TYPE_GPU: {
+            ggml_backend_dev_props props;
+            ggml_backend_dev_get_props(dev, &props);
+            return props.caps.buffer_from_host_ptr;
+        }
+        default:
+            return false;
+    }
+}
+
+size_t budget_after_headroom(const best_fit_device_breakdown & d, size_t headroom) {
+    return d.free_bytes > headroom ? d.free_bytes - headroom : 0;
+}
+
+// Each device must fit its own budget, and the host together with every
+// device sharing its memory must fit the host's budget, so a GPU carved out
+// of host RAM cannot spend the room the host's headroom keeps for the system.
+bool prediction_fits_budget(const best_fit_prediction & pred,
+                            const size_t * headroom_per_device,
+                            llama_model * model) {
+    const best_fit_device_breakdown & host = pred.devices[pred.n_devices];
+    size_t pooled = host.total_used_bytes;
     for (int i = 0; i <= pred.n_devices; i++) {
         const best_fit_device_breakdown & d = pred.devices[i];
-        const size_t budget = (d.free_bytes > headroom_per_device[i])
-                              ? d.free_bytes - headroom_per_device[i]
-                              : 0;
-        if (d.total_used_bytes > budget) return false;
+        if (d.total_used_bytes > budget_after_headroom(d, headroom_per_device[i])) return false;
+        if (i < pred.n_devices && shares_host_memory(llama_model_get_device(model, i))) {
+            pooled += d.total_used_bytes;
+        }
     }
-    return true;
+    return pooled <= budget_after_headroom(host, headroom_per_device[pred.n_devices]);
 }
 
 // Build a context, fill the prediction, optionally run the probe-alloc test.
@@ -220,7 +249,7 @@ bool predict_with_pp_fallback(llama_model * model,
     }
 
     const bool should_try_no_pp = can_fallback
-        && (headroom_per_device ? !prediction_fits_budget(out_pred, headroom_per_device) : !pp_on_fits);
+        && (headroom_per_device ? !prediction_fits_budget(out_pred, headroom_per_device, model) : !pp_on_fits);
     if (should_try_no_pp) {
         llama_context_params cp_no_pp = cparams;
         cp_no_pp.pipeline_parallel_type = LLAMA_PIPELINE_PARALLEL_DISABLED;
@@ -337,7 +366,7 @@ extern "C" best_fit_max_ctx_result best_fit_max_ctx(
             return false;
         }
 
-        return prediction_fits_budget(out_pred, headroom_per_device);
+        return prediction_fits_budget(out_pred, headroom_per_device, model);
     };
 
     best_fit_prediction pred_min{};
