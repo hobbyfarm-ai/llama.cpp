@@ -18,11 +18,12 @@ std::map<ggml_backend_buffer_type_t, size_t>
 compute_breakdown_max(const struct llama_context * ctx);
 
 // Per-buft model bytes that match what real load will allocate. With
-// use_mmap=true returns the contiguous file span the loader would mmap per
-// buft (overshoots sum-of-tensor-bytes when tensors of different bufts are
-// interleaved in the file). With use_mmap=false returns the alignment-padded
-// sum-of-tensor-bytes per buft. Requires the model to have been loaded with
-// no_alloc=true so tensor->buffer reflects the assigned buft.
+// use_mmap=true returns the bytes of the file ranges the loader would mmap
+// per buft: the union of its tensors' ranges minus the ranges owned by other
+// bufts (mirrors llama_model_loader::get_mapping_ranges). With use_mmap=false
+// returns the alignment-padded sum-of-tensor-bytes per buft. Requires the
+// model to have been loaded with no_alloc=true so tensor->buffer reflects
+// the assigned buft.
 std::map<ggml_backend_buffer_type_t, size_t>
 model_breakdown_mmap_aware(
     const struct llama_model * model,

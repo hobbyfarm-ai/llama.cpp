@@ -6,11 +6,65 @@
 
 #include <algorithm>
 #include <cstring>
-#include <limits>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace best_fit {
+
+namespace {
+
+struct file_range {
+    size_t first;
+    size_t last;
+};
+
+// Mirrors the loader's merge_ranges: sorted, non-overlapping union.
+std::vector<file_range> merge_ranges(std::vector<file_range> ranges) {
+    std::sort(ranges.begin(), ranges.end(), [](const file_range & a, const file_range & b) { return a.first < b.first; });
+
+    std::vector<file_range> merged;
+    for (const file_range & range : ranges) {
+        if (!merged.empty() && range.first <= merged.back().last) {
+            merged.back().last = std::max(merged.back().last, range.last);
+        } else {
+            merged.push_back(range);
+        }
+    }
+    return merged;
+}
+
+// Mirrors the loader's sub_ranges: subtract the sorted ranges `sub` from `own`.
+std::vector<file_range> sub_ranges(const std::vector<file_range> & own, const std::vector<file_range> & sub) {
+    std::vector<file_range> result;
+    for (const file_range & range : own) {
+        size_t cursor = range.first;
+        for (const file_range & foreign : sub) {
+            if (foreign.last <= cursor || foreign.first >= range.last) {
+                continue;
+            }
+            if (foreign.first > cursor) {
+                result.push_back({ cursor, foreign.first });
+            }
+            cursor = std::max(cursor, foreign.last);
+        }
+        if (cursor < range.last) {
+            result.push_back({ cursor, range.last });
+        }
+    }
+    return result;
+}
+
+size_t total_bytes(const std::vector<file_range> & ranges) {
+    size_t bytes = 0;
+    for (const file_range & range : ranges) {
+        bytes += range.last - range.first;
+    }
+    return bytes;
+}
+
+}  // namespace
 
 std::map<ggml_backend_buffer_type_t, size_t>
 compute_breakdown_max(const struct llama_context * ctx) {
@@ -57,9 +111,17 @@ model_breakdown_mmap_aware(
     }
 
     // For each buft, accumulate alignment-padded alloc bytes and the raw
-    // file-offset span (GGUF stores tensors unaligned in the file, so the
-    // span uses raw byte sizes; allocation uses GGML_PAD).
-    struct buft_acc { size_t sum_bytes = 0; size_t min_off = std::numeric_limits<size_t>::max(); size_t max_off_end = 0; };
+    // file ranges of its tensors (GGUF stores tensors unaligned in the file,
+    // so ranges use raw byte sizes; allocation uses GGML_PAD).
+    struct owned_range {
+        std::string name;
+        file_range  range;
+    };
+    struct buft_acc {
+        size_t                          sum_bytes = 0;
+        std::vector<owned_range>        owned;
+        std::unordered_set<std::string> names;
+    };
     std::map<ggml_backend_buffer_type_t, buft_acc> acc;
 
     // Lazy-resolved CPU buft for the host-buft demotion below.
@@ -100,20 +162,41 @@ model_breakdown_mmap_aware(
         auto it = tensor_offset.find(name);
         if (it != tensor_offset.end()) {
             const size_t off = it->second;
-            a.min_off     = std::min(a.min_off, off);
-            a.max_off_end = std::max(a.max_off_end, off + file_bytes);
+            a.owned.push_back({ name, { off, off + file_bytes } });
+            a.names.insert(name);
         }
     }
 
-    // A buft is mmap-eligible (and thus reports the file span instead of
-    // the alignment-padded sum) when use_mmap is on, the buft is its
-    // device's default, and the device supports buffer_from_host_ptr.
+    // Mirror the loader's get_mapping_ranges: a buft maps the union of its
+    // own tensor ranges minus the ranges owned by other bufts. A weight that
+    // appears in several bufts (e.g. a duplicated token_embd) is not foreign.
+    auto mapped_bytes = [&](ggml_backend_buffer_type_t buft, const buft_acc & a) -> size_t {
+        std::vector<file_range> own;
+        own.reserve(a.owned.size());
+        for (const owned_range & entry : a.owned) {
+            own.push_back(entry.range);
+        }
+
+        std::vector<file_range> foreign;
+        for (const auto & [other_buft, other] : acc) {
+            if (other_buft == buft) continue;
+            for (const owned_range & entry : other.owned) {
+                if (a.names.count(entry.name) == 0) {
+                    foreign.push_back(entry.range);
+                }
+            }
+        }
+        return total_bytes(sub_ranges(merge_ranges(std::move(own)), merge_ranges(std::move(foreign))));
+    };
+
+    // A buft is mmap-eligible (and thus reports its mapped file ranges
+    // instead of the alignment-padded sum) when use_mmap is on, the buft is
+    // its device's default, and the device supports buffer_from_host_ptr.
     for (const auto & [buft, a] : acc) {
-        const size_t sum  = a.sum_bytes;
-        const size_t span = (a.max_off_end > a.min_off) ? (a.max_off_end - a.min_off) : 0;
+        const size_t sum = a.sum_bytes;
 
         bool mmap_eligible = false;
-        if (use_mmap && span > 0) {
+        if (use_mmap && !a.owned.empty()) {
             ggml_backend_dev_t dev = ggml_backend_buft_get_device(buft);
             // CPU backend buft has a NULL device; resolve via the CPU dev
             // type so buffer_from_host_ptr can be queried.
@@ -127,7 +210,7 @@ model_breakdown_mmap_aware(
                 }
             }
         }
-        ret[buft] = mmap_eligible ? span : sum;
+        ret[buft] = mmap_eligible ? mapped_bytes(buft, a) : sum;
     }
     return ret;
 }
